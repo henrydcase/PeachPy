@@ -1,5 +1,8 @@
 # This file is part of PeachPy package and is licensed under the Simplified BSD license.
 #    See license.rst for the full text of the license.
 
-from peachpy.common.regalloc import RegisterAllocator
-from peachpy.common.symbol import SymbolVisibility
+from enum import IntEnum
+
+class SymbolVisibility(IntEnum):
+    default = 0
+    hidden = 1

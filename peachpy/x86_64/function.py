@@ -11,6 +11,7 @@ import six
 import peachpy
 import peachpy.writer
 import peachpy.name
+import peachpy.common
 import peachpy.x86_64.instructions
 import peachpy.x86_64.registers
 import peachpy.x86_64.avx
@@ -106,6 +107,7 @@ class Function:
             XMMRegister._kind: RegisterAllocator(),
             KRegister._kind: RegisterAllocator()
         }
+        self._visibility = peachpy.common.SymbolVisibility.default
 
     @property
     def c_signature(self):
@@ -178,6 +180,16 @@ class Function:
         for instruction in self._instructions:
             extensions.update(instruction.isa_extensions)
         return Extensions(*extensions)
+
+    @property
+    def visibility(self):
+        return self._visibility
+
+    @visibility.setter
+    def visibility(self, v):
+        if not isinstance(v, peachpy.common.SymbolVisibility):
+            raise TypeError("Invalid arguments types: a common.SymbolVisibility enum value expected")
+        self._visibility = v
 
     def __enter__(self):
         self.attach()
@@ -982,6 +994,7 @@ class ABIFunction:
         self._filter_instruction_encodings()
 
         self.mangled_name = self.mangle_name()
+        self._visibility = function.visibility
 
     def _update_argument_loads(self, arguments):
         from peachpy.x86_64.pseudo import LOAD
@@ -1496,23 +1509,26 @@ class ABIFunction:
         elif assembly_format == "gas":
             from peachpy.util import ilog2
             code_alignment = 16
-            code = [
-                "#ifdef __APPLE__",
-                ".section __TEXT,__text,regular,pure_instructions",
-                ".globl _{name}".format(name=self.mangled_name),
-                ".p2align {ilog2alignment}, 0x90".format(
-                    ilog2alignment=ilog2(code_alignment)),
-                "_{name}:".format(name=self.mangled_name),
-                "#else /* !__APPLE__ */",
-                ".text",
-                ".p2align {ilog2alignment},,{max_alignment_bytes}".format(
-                    ilog2alignment=ilog2(code_alignment),
-                    max_alignment_bytes=code_alignment - 1),
-                ".globl " + self.mangled_name,
-                ".type {name}, @function".format(name=self.mangled_name),
-                "{name}:".format(name=self.mangled_name),
-                "#endif /* !__APPLE */",
-            ]
+            code = []
+            # APPLE
+            code.append("#ifdef __APPLE__")
+            code.append(".section __TEXT,__text,regular,pure_instructions")
+            code.append(".globl _{name}".format(name=self.mangled_name))
+            if self._visibility == peachpy.common.SymbolVisibility.hidden:
+                code.append(".private_extern _{name}".format(name=self.mangled_name))
+            code.append(".p2align {ilog2alignment}, 0x90".format(ilog2alignment=ilog2(code_alignment)))
+            code.append("_{name}:".format(name=self.mangled_name))
+            code.append("#else /* !__APPLE__ */")
+            code.append(".text")
+            code.append(".p2align {ilog2alignment},,{max_alignment_bytes}".format(
+                ilog2alignment=ilog2(code_alignment),
+                max_alignment_bytes=code_alignment - 1))
+            code.append(".globl " + self.mangled_name)
+            if self._visibility == peachpy.common.SymbolVisibility.hidden:
+                code.append(".hidden {name}".format(name=self.mangled_name))
+            code.append(".type {name}, @function".format(name=self.mangled_name))
+            code.append("{name}:".format(name=self.mangled_name))
+            code.append("#endif /* !__APPLE */")
         else:
             code = []
 
